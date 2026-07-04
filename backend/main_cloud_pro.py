@@ -15,6 +15,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from collections import deque
+from itertools import combinations
 from fastapi import FastAPI, Form, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -22,7 +23,7 @@ from pydantic import BaseModel
 import cognee
 from cognee.memory import QAEntry, FeedbackEntry
 from dotenv import load_dotenv
-from normalize import normalize_note
+from normalize import normalize_note, DRUG_TERMS, BRAND_TO_INGREDIENT
 
 load_dotenv()
 COGNEE_SERVICE_URL = os.getenv("COGNEE_SERVICE_URL")
@@ -123,10 +124,10 @@ MECHANISM_FACTS = {
         "of serotonin syndrome.",
 }
 
-_KNOWN_DRUGS = ["amiodarone", "simvastatin", "atorvastatin", "warfarin", "verapamil",
-    "diltiazem", "metoprolol", "propranolol", "lisinopril", "metformin",
-    "clopidogrel", "omeprazole", "sildenafil", "nitroglycerin", "aspirin",
-    "ibuprofen", "sertraline", "tramadol"]
+# Canonical generic-name vocabulary, derived from normalize.py's single
+# source of truth (brand names collapsed to ingredient) rather than a
+# separately hand-maintained list that would drift out of sync with it.
+_KNOWN_DRUGS = sorted({BRAND_TO_INGREDIENT.get(t, t) for t in DRUG_TERMS})
 
 
 async def _currently_active_drugs(patient_id):
@@ -142,6 +143,52 @@ async def _currently_active_drugs(patient_id):
         return {d for d in _KNOWN_DRUGS if d in text}
     except Exception:
         return set()
+
+
+# Independently-generated LLM output for the same real-world symptom drifts
+# in wording between calls ("dizziness on standing" vs "occasional dizziness"),
+# which breaks the exact-match aggregation /discover_signals depends on across
+# patients. Constraining to a fixed vocabulary, the same fix normalize.py uses
+# for drugs/conditions, keeps labels comparable across independent calls.
+_KNOWN_SYMPTOMS = [
+    "dizziness", "muscle pain", "muscle weakness", "fatigue", "nausea",
+    "headache", "rash", "confusion", "sedation", "constipation", "tremor",
+    "bleeding", "bruising", "palpitations", "chest pain", "shortness of breath",
+    "swelling", "weight gain", "insomnia", "diarrhea", "dry cough",
+]
+
+EXPOSURE_OUTCOME_INSTRUCTION = (
+    TEMPORAL_INSTRUCTION +
+    "Respond with ONLY a JSON object, no prose, no markdown fences: "
+    '{"active_drugs": ["<lowercase generic drug name>", ...], '
+    '"symptoms": ["<canonical symptom from the list below>", ...]}. '
+    "active_drugs lists every medication currently active for this patient (started and "
+    "not later discontinued). symptoms lists which of the following exact phrases are noted "
+    "anywhere in this patient's record, regardless of whether they were linked to a "
+    "medication — choose ONLY from this list, do not invent new wording: "
+    + ", ".join(_KNOWN_SYMPTOMS) + ". If none apply, use empty arrays."
+)
+
+
+async def _exposure_outcome_profile(patient_id):
+    """One recall() call per patient returning {active_drugs, symptoms} as
+    real per-patient exposure/outcome data — the raw material for computing
+    fleet-wide disproportionality (see /discover_signals) instead of just
+    answering a single pre-specified question."""
+    try:
+        result = await cognee.recall(EXPOSURE_OUTCOME_INSTRUCTION, datasets=[patient_id],
+                                      top_k=RECALL_TOP_K, query_type=GRAPH_QUERY_TYPE)
+        cleaned = "\n".join(_texts(result)).strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.MULTILINE).strip()
+        data = json.loads(cleaned)
+        if not isinstance(data, dict):
+            return set(), set()
+        drugs = {str(d).strip().lower() for d in data.get("active_drugs", []) if str(d).strip()}
+        symptoms = {str(s).strip().lower() for s in data.get("symptoms", []) if str(s).strip()} & set(_KNOWN_SYMPTOMS)
+        return drugs & set(_KNOWN_DRUGS), symptoms
+    except Exception:
+        return set(), set()
 
 
 async def _append_mechanism_facts(annotated_text, mappings, patient_id):
@@ -660,6 +707,60 @@ async def population_insight(request: PopulationInsightRequest):
         "matching_patients": [] if suppressed else matching,
         "k_anonymity_suppressed": suppressed,
     }
+
+
+# Minimum number of patients that must share a drug pair before it's even
+# considered — a "signal" from one patient is noise, not a discovery.
+SIGNAL_MIN_PATIENTS_WITH_PAIR = 2
+
+
+@app.post("/discover_signals")
+async def discover_signals():
+    """Fleet-wide disproportionality sweep. Unlike population_insight (which
+    checks one pair the user already suspects), this walks every drug pair
+    that actually co-occurs across the fleet and tests whether any symptom
+    shows up disproportionately more often among patients exposed to that
+    pair than among patients who are not, using the textbook Proportional
+    Reporting Ratio (Evans, Waller & Davis, 2001) computed from real
+    per-patient exposure/outcome data — not the feedback-ledger adaptation
+    /ledger uses. Pairs already in MECHANISM_FACTS are skipped: this
+    endpoint is only interested in surfacing candidates nobody told it
+    about. Like population_insight, each patient's raw notes are only ever
+    read from that patient's own isolated dataset."""
+    profiles = {}
+    for pid in sorted(KNOWN_PATIENTS):
+        drugs, symptoms = await _exposure_outcome_profile(pid)
+        if drugs:
+            profiles[pid] = (drugs, symptoms)
+
+    pair_patients = {}
+    for pid, (drugs, _symptoms) in profiles.items():
+        for a, b in combinations(sorted(drugs), 2):
+            pair_patients.setdefault(frozenset({a, b}), set()).add(pid)
+
+    all_symptoms = {s for _, symptoms in profiles.values() for s in symptoms}
+    signals = []
+    for pair, exposed in pair_patients.items():
+        if len(exposed) < SIGNAL_MIN_PATIENTS_WITH_PAIR or pair in MECHANISM_FACTS:
+            continue
+        unexposed = set(profiles) - exposed
+        best = None
+        for symptom in all_symptoms:
+            a = sum(1 for pid in exposed if symptom in profiles[pid][1])
+            b = len(exposed) - a
+            c = sum(1 for pid in unexposed if symptom in profiles[pid][1])
+            d = len(unexposed) - c
+            if a == 0 or c == 0 or (c + d) == 0:
+                continue  # PRR undefined without both an exposed event and a comparator rate
+            prr = (a / (a + b)) / (c / (c + d))
+            if best is None or prr > best["prr"]:
+                best = {"symptom": symptom, "prr": round(prr, 2), "a": a, "b": b, "c": c, "d": d}
+        if best and best["prr"] >= PRR_SIGNAL_THRESHOLD:
+            drug_a, drug_b = sorted(pair)
+            signals.append({"drug_a": drug_a, "drug_b": drug_b, "patients_exposed": len(exposed), **best})
+
+    signals.sort(key=lambda s: s["prr"], reverse=True)
+    return {"patients_scanned": len(profiles), "candidate_signals": signals}
 
 
 @app.post("/analyze")

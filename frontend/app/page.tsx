@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import {
   Activity, Brain, ShieldAlert, FlaskConical, Stethoscope, Plus,
   Sparkles, Trash2, Network, Clock, Database, ChevronRight, X, Check,
-  AlertTriangle, Info, Zap, User, FileText, History, Users,
+  AlertTriangle, Info, Zap, User, FileText, History, Users, Radar,
 } from "lucide-react";
 
 const BACKEND_URL = "http://localhost:8000";
@@ -112,6 +112,10 @@ async function apiPopulationInsight(termA, termB) {
 }
 async function apiLedgerLookup(findingTitle) {
   const r = await checkOk(await fetch(`${BACKEND_URL}/ledger/${encodeURIComponent(findingTitle)}`));
+  return r.json();
+}
+async function apiDiscoverSignals() {
+  const r = await checkOk(await fetch(`${BACKEND_URL}/discover_signals`, { method: "POST" }));
   return r.json();
 }
 
@@ -293,6 +297,8 @@ export default function SynapseMedDashboard() {
   const [popB, setPopB] = useState("");
   const [popResult, setPopResult] = useState(null);
   const [popBusy, setPopBusy] = useState(false);
+  const [discoverResult, setDiscoverResult] = useState(null);
+  const [discoverBusy, setDiscoverBusy] = useState(false);
 
   const patient = patients[activeId];
   const notes = patient.notes;
@@ -499,6 +505,18 @@ export default function SynapseMedDashboard() {
       setPopResult({ checked: 0, matching_patients: [], count: 0, note: `Error: ${e.message}` });
     }
     setPopBusy(false);
+  };
+
+  /* ── signal discovery: fleet-wide PRR sweep for undocumented drug pairs ── */
+  const runDiscoverSignals = async () => {
+    setDiscoverBusy(true);
+    try {
+      const res = await apiDiscoverSignals();
+      setDiscoverResult(res);
+    } catch (e) {
+      setDiscoverResult({ patients_scanned: 0, candidate_signals: [], note: `Error: ${e.message}` });
+    }
+    setDiscoverBusy(false);
   };
 
   /* ── fleet-wide ledger: look up confirm/dismiss tallies for each finding ── */
@@ -967,6 +985,52 @@ export default function SynapseMedDashboard() {
                 {popResult.matching_patients?.length > 0 && (
                   <p className="mono text-[10px] mt-1.5" style={{ color: "#7FB2F0" }}>
                     Matching: {popResult.matching_patients.join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Signal discovery · fleet-wide pattern mining" icon={Radar} accent="#F472B6">
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+              Doesn't check a pair you already suspect — scans every drug pair that actually
+              co-occurs across the fleet and flags any NOT already known to Synapse where a
+              symptom appears disproportionately more often (Proportional Reporting Ratio, the
+              same method FDA FAERS uses) among exposed patients than unexposed ones.
+            </p>
+            <button onClick={runDiscoverSignals} disabled={discoverBusy}
+              className="w-full py-2 rounded-lg font-semibold text-sm transition-all disabled:opacity-40"
+              style={{ background: "#3A1530", border: "1px solid #6B2C56", color: "#FFCFE8" }}>
+              {discoverBusy ? "Scanning fleet memory…" : "Scan population for undocumented signals"}
+            </button>
+            {discoverResult && (
+              <div className="rounded-lg p-3 mt-3 text-[12px] leading-relaxed" style={{ background: "#0A1522", border: "1px solid #16223A" }}>
+                {discoverResult.note ? (
+                  <p style={{ color: "#B7C4DC" }}>{discoverResult.note}</p>
+                ) : discoverResult.candidate_signals?.length ? (
+                  <div className="space-y-2">
+                    {discoverResult.candidate_signals.map((s, i) => (
+                      <div key={i} className="rounded-lg p-2.5" style={{ background: "#1A0E20", border: "1px solid #6B2C56" }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="disp font-semibold text-[13px]" style={{ color: "#FFCFE8" }}>
+                            {titleCase(s.drug_a)} + {titleCase(s.drug_b)}
+                          </span>
+                          <span className="mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "#3A1530", color: "#FFCFE8" }}>
+                            PRR {s.prr}×
+                          </span>
+                        </div>
+                        <p className="text-[11px]" style={{ color: "#B7C4DC" }}>
+                          Not in Synapse's known-interaction list. {titleCase(s.symptom)} appears in{" "}
+                          {s.a} of {s.a + s.b} patients on both drugs, vs {s.c} of {s.c + s.d} patients not on both.
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ color: "#B7C4DC" }}>
+                    Scanned {discoverResult.patients_scanned} patient(s) · no undocumented
+                    disproportionate signal found yet. More patients and shared drug pairs
+                    give this more to work with.
                   </p>
                 )}
               </div>
