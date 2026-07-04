@@ -769,10 +769,16 @@ async def clear(patient_id: str = Form(...)):
 
 @app.get("/graph", response_class=HTMLResponse)
 async def graph():
+    # Cognee Cloud's own graph explorer lives behind platform.cognee.ai's login,
+    # so it can't be embedded directly in this iframe — link out to it instead
+    # of silently failing to render inside the frame.
     return HTMLResponse(
-        "<div style='font-family:sans-serif;padding:24px;color:#333'>"
-        "View your live temporal knowledge graph in the Cognee Cloud dashboard at "
-        "<a href='https://platform.cognee.ai'>platform.cognee.ai</a>.</div>"
+        "<div style='font-family:sans-serif;padding:24px;color:#333;line-height:1.5'>"
+        "Cognee Cloud's own graph explorer requires signing in to your Cognee account "
+        "directly, so it can't be embedded here. Open it in a new tab: "
+        "<a href='https://platform.cognee.ai' target='_blank' rel='noopener'>platform.cognee.ai</a>."
+        "<br><br>The <b>SYNTHESIZED</b> tab on this page renders the same underlying graph "
+        "locally and needs no separate login.</div>"
     )
 
 

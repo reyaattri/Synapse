@@ -22,17 +22,35 @@ _cache = {}  # term -> (rxcui, canonical_name), so we don't hit the API twice
 
 # Drug terms we watch for (brands included). Extend freely.
 DRUG_TERMS = [
-    "amiodarone", "simvastatin", "atorvastatin", "zocor", "warfarin", "coumadin",
-    "verapamil", "diltiazem", "metoprolol", "propranolol", "lisinopril",
-    "metformin", "clopidogrel", "plavix", "omeprazole", "sildenafil", "viagra",
-    "nitroglycerin", "aspirin", "ibuprofen", "advil", "sertraline", "zoloft",
-    "tramadol",
+    "amiodarone", "simvastatin", "atorvastatin", "zocor", "rosuvastatin", "crestor",
+    "pravastatin", "warfarin", "coumadin", "apixaban", "eliquis", "rivaroxaban", "xarelto",
+    "verapamil", "diltiazem", "amlodipine", "norvasc", "metoprolol", "propranolol",
+    "lisinopril", "enalapril", "losartan", "clonidine", "hydrochlorothiazide",
+    "furosemide", "lasix", "spironolactone", "digoxin",
+    "metformin", "glucophage", "glipizide", "insulin", "lantus",
+    "levothyroxine", "synthroid",
+    "clopidogrel", "plavix", "omeprazole", "prilosec", "pantoprazole", "protonix",
+    "sildenafil", "viagra", "nitroglycerin", "aspirin", "ibuprofen", "advil", "motrin",
+    "naproxen", "aleve", "celecoxib", "acetaminophen", "tylenol",
+    "sertraline", "zoloft", "fluoxetine", "prozac", "citalopram", "celexa",
+    "escitalopram", "lexapro", "venlafaxine", "effexor",
+    "alprazolam", "xanax", "lorazepam", "ativan", "quetiapine", "gabapentin",
+    "tramadol", "oxycodone", "hydrocodone", "morphine",
+    "amoxicillin", "azithromycin", "ciprofloxacin", "doxycycline",
+    "albuterol", "montelukast", "prednisone",
 ]
 
-# Brand -> ingredient, applied BEFORE lookup so "Zocor" and "simvastatin" unify.
+# Brand -> ingredient, applied BEFORE lookup so e.g. "Zocor" and "simvastatin" unify.
 BRAND_TO_INGREDIENT = {
     "zocor": "simvastatin", "coumadin": "warfarin", "plavix": "clopidogrel",
-    "viagra": "sildenafil", "advil": "ibuprofen", "zoloft": "sertraline",
+    "viagra": "sildenafil", "advil": "ibuprofen", "motrin": "ibuprofen",
+    "zoloft": "sertraline", "crestor": "rosuvastatin", "eliquis": "apixaban",
+    "xarelto": "rivaroxaban", "norvasc": "amlodipine", "lasix": "furosemide",
+    "synthroid": "levothyroxine", "glucophage": "metformin", "lantus": "insulin",
+    "xanax": "alprazolam", "ativan": "lorazepam", "prozac": "fluoxetine",
+    "lexapro": "escitalopram", "celexa": "citalopram", "effexor": "venlafaxine",
+    "tylenol": "acetaminophen", "aleve": "naproxen", "prilosec": "omeprazole",
+    "protonix": "pantoprazole",
 }
 
 # Condition / symptom synonyms -> canonical label (license-free stand-in for SNOMED)
@@ -49,6 +67,12 @@ CONDITION_CANON = {
     "asthma": "Asthma", "reflux": "GERD", "gerd": "GERD", "heartburn": "GERD",
     "muscle fatigue": "Myalgia", "muscle pain": "Myalgia", "muscle aches": "Myalgia",
     "weakness": "Muscle weakness",
+    "copd": "COPD", "chronic obstructive pulmonary disease": "COPD",
+    "underactive thyroid": "Hypothyroidism", "hypothyroidism": "Hypothyroidism",
+    "anxiety": "Anxiety", "insomnia": "Insomnia", "trouble sleeping": "Insomnia",
+    "migraine": "Migraine", "migraines": "Migraine",
+    "osteoporosis": "Osteoporosis", "obesity": "Obesity",
+    "chronic kidney disease": "Chronic Kidney Disease", "ckd": "Chronic Kidney Disease",
 }
 
 

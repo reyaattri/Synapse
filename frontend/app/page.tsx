@@ -122,23 +122,45 @@ async function apiLedgerLookup(findingTitle) {
    those come from Cognee's recall() on the backend.                   */
 const DRUGS = {
   amiodarone: "Amiodarone", simvastatin: "Simvastatin", atorvastatin: "Atorvastatin",
-  warfarin: "Warfarin", verapamil: "Verapamil", diltiazem: "Diltiazem",
+  rosuvastatin: "Rosuvastatin", pravastatin: "Pravastatin",
+  warfarin: "Warfarin", apixaban: "Apixaban", rivaroxaban: "Rivaroxaban",
+  verapamil: "Verapamil", diltiazem: "Diltiazem", amlodipine: "Amlodipine",
   metoprolol: "Metoprolol", propranolol: "Propranolol", lisinopril: "Lisinopril",
-  metformin: "Metformin", clopidogrel: "Clopidogrel", omeprazole: "Omeprazole",
+  enalapril: "Enalapril", losartan: "Losartan", clonidine: "Clonidine",
+  hydrochlorothiazide: "Hydrochlorothiazide", furosemide: "Furosemide",
+  spironolactone: "Spironolactone", digoxin: "Digoxin",
+  metformin: "Metformin", glipizide: "Glipizide", insulin: "Insulin",
+  levothyroxine: "Levothyroxine",
+  clopidogrel: "Clopidogrel", omeprazole: "Omeprazole", pantoprazole: "Pantoprazole",
   sildenafil: "Sildenafil", nitroglycerin: "Nitroglycerin", aspirin: "Aspirin",
-  ibuprofen: "Ibuprofen", sertraline: "Sertraline", tramadol: "Tramadol",
+  ibuprofen: "Ibuprofen", naproxen: "Naproxen", celecoxib: "Celecoxib",
+  acetaminophen: "Acetaminophen",
+  sertraline: "Sertraline", fluoxetine: "Fluoxetine", citalopram: "Citalopram",
+  escitalopram: "Escitalopram", venlafaxine: "Venlafaxine",
+  alprazolam: "Alprazolam", lorazepam: "Lorazepam", quetiapine: "Quetiapine",
+  gabapentin: "Gabapentin",
+  tramadol: "Tramadol", oxycodone: "Oxycodone", hydrocodone: "Hydrocodone",
+  morphine: "Morphine",
+  amoxicillin: "Amoxicillin", azithromycin: "Azithromycin",
+  ciprofloxacin: "Ciprofloxacin", doxycycline: "Doxycycline",
+  albuterol: "Albuterol", montelukast: "Montelukast", prednisone: "Prednisone",
 };
 const CONDITIONS = {
   "atrial fibrillation": "Atrial Fibrillation", arrhythmia: "Arrhythmia",
   asthma: "Asthma", hypertension: "Hypertension", diabetes: "Diabetes",
   hyperlipidemia: "Hyperlipidemia", angina: "Angina", depression: "Depression",
-  stroke: "Stroke", gerd: "GERD",
+  anxiety: "Anxiety", insomnia: "Insomnia", migraine: "Migraine",
+  stroke: "Stroke", gerd: "GERD", copd: "COPD", obesity: "Obesity",
+  hypothyroidism: "Hypothyroidism", osteoporosis: "Osteoporosis",
+  "chronic kidney disease": "Chronic Kidney Disease",
 };
 const SYMPTOMS = {
   "muscle fatigue": "Muscle fatigue", "muscle pain": "Muscle pain",
   weakness: "Weakness", dizziness: "Dizziness", "chest pain": "Chest pain",
   "shortness of breath": "Shortness of breath", bleeding: "Bleeding",
-  palpitations: "Palpitations",
+  palpitations: "Palpitations", nausea: "Nausea", fatigue: "Fatigue",
+  headache: "Headache", rash: "Rash", confusion: "Confusion",
+  sedation: "Sedation", constipation: "Constipation", tremor: "Tremor",
 };
 const SPECIALTIES = [
   { name: "Cardiology", icon: Activity },
@@ -151,7 +173,14 @@ const SPECIALTIES = [
 // client-side graph resolves "Zocor" to the same drug node as "simvastatin".
 const BRAND_TO_GENERIC = {
   zocor: "simvastatin", coumadin: "warfarin", plavix: "clopidogrel",
-  viagra: "sildenafil", advil: "ibuprofen", zoloft: "sertraline",
+  viagra: "sildenafil", advil: "ibuprofen", motrin: "ibuprofen",
+  zoloft: "sertraline", crestor: "rosuvastatin", lipitor: "atorvastatin",
+  eliquis: "apixaban", xarelto: "rivaroxaban", norvasc: "amlodipine",
+  lasix: "furosemide", synthroid: "levothyroxine", glucophage: "metformin",
+  lantus: "insulin", xanax: "alprazolam", ativan: "lorazepam",
+  prozac: "fluoxetine", lexapro: "escitalopram", celexa: "citalopram",
+  effexor: "venlafaxine", tylenol: "acetaminophen", aleve: "naproxen",
+  prilosec: "omeprazole", protonix: "pantoprazole",
 };
 
 /* ── tiny keyword extractor (the demo's stand-in for cognify) ─────── */
@@ -185,7 +214,7 @@ function titleCase(s) {
 /* ── seed patients ─────────────────────────────────────────────── */
 const SEED = () => ({
   p_otis_reyes: { name: "Otis Reyes", mrn: "MRN-4471", age: 68, sex: "M", notes: [] },
-  p_mara_iqbal: { name: "Mara Iqbal", mrn: "MRN-2208", age: 54, sex: "F", notes: [] },
+  p_annie_walsh: { name: "Annie Walsh", mrn: "MRN-2208", age: 54, sex: "F", notes: [] },
 });
 
 /* ─────────────────────── color tokens ─────────────────────────── */
@@ -305,8 +334,11 @@ export default function SynapseMedDashboard() {
       const order = { critical: 0, major: 1, moderate: 2, info: 3 };
       const out = (res.findings || []).map((f) => {
         const sources = [...new Set(f.specialties || [])];
+        // Matched against raw note text, not the local drug dict, so
+        // corroboration works for any drug Cognee names, not only the
+        // small vocabulary this app recognizes for graph-node labeling.
         const corro = notes
-          .filter((n) => n.entities.drugs.includes(f.drug_a) || n.entities.drugs.includes(f.drug_b))
+          .filter((n) => n.text.toLowerCase().includes(f.drug_a) || n.text.toLowerCase().includes(f.drug_b))
           .flatMap((n) => n.entities.symptoms);
         return {
           ...f,
@@ -1068,7 +1100,10 @@ function Markdown({ children }) {
 /* ─────────────────── small presentational bits ───────────────── */
 function Panel({ title, icon: Icon, right, children, accent = "#36D6C3" }) {
   return (
-    <div className="rounded-2xl p-4" style={{ background: "#0C1320", border: "1px solid #16223A", borderLeft: `3px solid ${accent}` }}>
+    <div className="rounded-2xl p-4" style={{
+      background: `linear-gradient(165deg, ${accent}17 0%, #0C1320 45%)`,
+      border: "1px solid #16223A", borderLeft: `3px solid ${accent}`,
+    }}>
       <div className="flex items-center justify-between mb-3">
         <h2 className="disp text-[13px] font-semibold tracking-wide flex items-center gap-2"
           style={{ color: "#C3D0E6" }}>
