@@ -31,9 +31,26 @@ On top of the four verbs, Synapse leans on two more Cognee capabilities that mos
 - **Explainable AI over a real graph.** The "Explain" action on any finding runs a deterministic breadth-first search over Cognee's raw stored edges (via `only_context=True`) and renders the actual path connecting two entities — a reasoning chain grounded in stored graph structure, not a model's restated guess.
 - **A working `improve()` substitute.** Rather than silently degrading when Cognee Cloud's feedback-weighting endpoint wasn't available, Synapse built the mechanism it's meant to provide: a fleet-wide confirm/dismiss ledger that conditions future answers and is injected back into the recall prompt as context.
 - **Provisional memory with a real TTL.** Speculative findings decay and are individually forgotten via Cognee's `memory_only` deletion — never a full dataset wipe — modeling the difference between a tentative "rule-out" note and a confirmed clinical fact.
+- **Sequence-symmetry temporal corroboration.** A corroborating symptom is checked against the drug's start date, not just its presence somewhere in the record — a named pharmacoepidemiology method, not an invented heuristic (see Research grounding below).
+- **A disproportionality signal, not just a vote count.** Repeated clinician feedback on a finding is scored with a PRR-style statistic borrowed from real drug-safety signal detection, so "confirmed 4 times" becomes "confirmed disproportionately more than the fleet's baseline," a meaningfully stronger claim.
 - **Time capsule queries** ask what was true as of a past date, exercising Cognee's temporal graph as a point-in-time index rather than only a "current state" store.
 - **Privacy-safe population insight** loops a yes/no question across every isolated patient dataset and returns only aggregate counts — raw notes never cross a patient boundary, by construction of Cognee's per-dataset isolation.
 - **RxNorm-normalized ingestion.** Drug names are canonicalized against the NIH RxNorm database before they ever reach `remember()`, so "Zocor" and "simvastatin" become the same graph node instead of two disconnected ones.
+
+## Research grounding
+
+Cognee's own hybrid graph-vector memory is descended from a real research lineage, and Synapse leans on that lineage deliberately rather than treating Cognee as an opaque API:
+
+- **Complementary Learning Systems theory** (McClelland, McNaughton & O'Reilly, 1995) describes how the hippocampus does fast episodic encoding while the neocortex slowly consolidates it into stable semantic knowledge. Synapse's provisional, TTL-scoped notes versus permanent `remember()` calls are that same two-system split applied to a clinical record.
+- **HippoRAG** (Gutiérrez et al., NeurIPS 2024) applies hippocampal indexing theory to long-term LLM memory — the research line Cognee's graph-vector architecture builds on.
+- **GraphRAG** (Edge et al., Microsoft Research, 2024) is the published case for why graph-structured retrieval outperforms flat vector RAG on multi-hop, cross-document questions — exactly the shape of "does this cardiology note interact with that neurology note" that Synapse asks on every recall.
+- **Path-based knowledge-graph explainability** (DeepPath, Xiong et al., 2017; MINERVA, Das et al., 2018) is the research area Synapse's `/explain` deterministic graph-path traversal is a simplified instance of.
+
+On top of the graph, Synapse borrows three named methods from pharmacoepidemiology and privacy research, rather than inventing ad hoc heuristics:
+
+- **Proportional Reporting Ratio** (Evans, Waller & Davis, 2001) — the disproportionality statistic regulators use to screen spontaneous adverse-event reports (FDA FAERS, WHO VigiBase) for signals worth investigating. `/ledger/{finding_title}` computes a PRR-style score from the clinician feedback ledger: how disproportionately often *this* finding is confirmed vs. dismissed relative to the average across every other finding the fleet has judged, using the conventional FAERS screening rule (PRR ≥ 2, at least 3 reports) to flag a signal. This is an adaptation, not the textbook formula — there's no independent adverse-event denominator here, so the comparator population is every other tracked finding rather than a separate control group.
+- **Sequence Symmetry Analysis** (Hallas, 1996) — a pharmacoepidemiology technique that checks the *order and interval* between a drug's start and a marker event, not just that both appear somewhere in the record. Synapse computes this client-side from explicit dates already written in note text: a symptom following drug initiation within a plausible window is temporally consistent evidence, one that predates the drug is weaker evidence, and the Finding card says which.
+- **k-anonymity** (Sweeney, 2002) — `/population_insight` only ever discloses the matching patient list once the matching group clears a threshold (k=3); below that, only the count is returned. A group of one or two patients is itself identifying, so returning raw IDs at any count, as an earlier version of this endpoint did, was a real privacy gap, not just an aggregation nicety.
 
 ## Try it in under 2 minutes
 
@@ -96,13 +113,13 @@ Open `http://localhost:3000`.
 | `GET /provisional_status` | Check which provisional findings are near expiry |
 | `POST /prune` | Delete expired provisional findings |
 | `POST /timeline_snapshot` | Query the patient's record as of a past date |
-| `POST /population_insight` | Aggregate, de-identified cross-patient patterns |
+| `POST /population_insight` | k-anonymized cross-patient aggregation (patient IDs withheld below k=3 matches) |
 | `POST /analyze` | Cross-consultation synthesis with Cognee-derived structured findings |
 | `POST /simulate` | "What if" check for a drug not yet prescribed |
 | `GET /debug_notes/{patient_id}` | Raw stored notes, for verification |
 | `POST /explain` | Graph-path explanation for a given finding |
 | `POST /feedback` | Record a clinician's confirm/dismiss judgment |
-| `GET /ledger/{finding_title}` | Prior feedback consensus for a finding |
+| `GET /ledger/{finding_title}` | Fleet consensus for a finding, plus its PRR disproportionality signal |
 | `POST /improve` | Best-effort call into Cognee's native improve loop |
 | `POST /clear` | Wipe a single patient's dataset |
 | `GET /graph` | Visual graph view for a patient |

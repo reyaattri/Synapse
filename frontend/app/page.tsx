@@ -183,7 +183,7 @@ const BRAND_TO_GENERIC = {
   prilosec: "omeprazole", protonix: "pantoprazole",
 };
 
-/* ── tiny keyword extractor (the demo's stand-in for cognify) ─────── */
+/* ── tiny keyword extractor, used only to drive the local D3 graph ── */
 function scan(text, dict) {
   const low = text.toLowerCase();
   return Object.keys(dict).filter((k) => low.includes(k));
@@ -203,6 +203,34 @@ function extract(text) {
     conditions: scan(text, CONDITIONS),
     symptoms: scan(text, SYMPTOMS),
   };
+}
+// First explicit YYYY-MM-DD date literally written in a note, if any.
+function noteDate(text) {
+  const m = /(\d{4}-\d{2}-\d{2})/.exec(text || "");
+  return m ? new Date(m[1]) : null;
+}
+// Sequence Symmetry Analysis (Hallas, 1996): a pharmacoepidemiology technique
+// that compares the order and interval between a drug's start and a marker
+// event (here, a corroborating symptom), rather than only checking that both
+// appear somewhere in the same record. A symptom following drug start within
+// a plausible window is stronger temporal evidence than one that predates the
+// drug or trails it by an implausible margin. This runs on explicit dates
+// already written in note text — it does not invent or infer a date.
+function sequenceSymmetry(notes, drugTerm, symptomKeys) {
+  if (!symptomKeys.length) return null;
+  const drugDate = notes
+    .filter((n) => n.text.toLowerCase().includes(drugTerm) && noteDate(n.text))
+    .map((n) => noteDate(n.text))
+    .sort((a, b) => a - b)[0];
+  const symptomNote = notes
+    .filter((n) => symptomKeys.some((s) => n.entities.symptoms.includes(s)) && noteDate(n.text))
+    .sort((a, b) => noteDate(a.text) - noteDate(b.text))[0];
+  if (!drugDate || !symptomNote) return null;
+  const symptomDate = noteDate(symptomNote.text);
+  const days = Math.round((symptomDate - drugDate) / 86400000);
+  if (days < 0) return { days, verdict: "precedes" };
+  if (days > 180) return { days, verdict: "distant" };
+  return { days, verdict: "consistent" };
 }
 // Display label for a drug/condition name Cognee returned that isn't in the
 // local vocabulary dicts above (e.g. one it knows from the graph but this
@@ -340,11 +368,15 @@ export default function SynapseMedDashboard() {
         const corro = notes
           .filter((n) => n.text.toLowerCase().includes(f.drug_a) || n.text.toLowerCase().includes(f.drug_b))
           .flatMap((n) => n.entities.symptoms);
+        const uniqueCorro = [...new Set(corro)];
+        const temporal = f.kind === "drug_drug" && !f.resolved
+          ? sequenceSymmetry(notes, f.drug_a, uniqueCorro) || sequenceSymmetry(notes, f.drug_b, uniqueCorro)
+          : null;
         return {
           ...f,
           title: `${DRUGS[f.drug_a] || titleCase(f.drug_a)} + ${DRUGS[f.drug_b] || CONDITIONS[f.drug_b] || titleCase(f.drug_b)}`,
           sources, crossSpecialty: sources.length > 1,
-          corro: [...new Set(corro)],
+          corro: uniqueCorro, temporal,
         };
       }).sort((x, y) => (x.resolved - y.resolved) || (order[x.severity] ?? 9) - (order[y.severity] ?? 9));
       setFindings(out);
@@ -1230,7 +1262,25 @@ function Finding({ f, reviewedJudgment, onFeedback, explainState, onExplain, led
             Fleet: confirmed {ledger.confirm || 0}× · dismissed {ledger.dismiss || 0}× across patients
           </span>
         )}
+        {ledger?.prr?.signal && (
+          <span className="mono text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1" style={{ background: "#241A08", color: "#FFD37F" }}
+            title="Proportional Reporting Ratio, adapted from spontaneous-report pharmacovigilance signal detection (Evans, Waller & Davis, 2001)">
+            PRR {ledger.prr.prr}× · disproportionate signal ({ledger.prr.reports} reports)
+          </span>
+        )}
       </div>
+      {f.temporal && (
+        <div className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: f.temporal.verdict === "consistent" ? "#7FEFE0" : "#8A99B4" }}
+          title="Sequence Symmetry Analysis (Hallas, 1996)">
+          <Clock className="h-3 w-3" />
+          {f.temporal.verdict === "consistent" &&
+            `Sequence check: symptom followed drug start by ${f.temporal.days} day${f.temporal.days === 1 ? "" : "s"} — temporally consistent`}
+          {f.temporal.verdict === "precedes" &&
+            `Sequence check: symptom predates this drug by ${Math.abs(f.temporal.days)} day${Math.abs(f.temporal.days) === 1 ? "" : "s"} — weaker evidence of causation`}
+          {f.temporal.verdict === "distant" &&
+            `Sequence check: symptom trails drug start by ${f.temporal.days} days — too distant to treat as strong temporal evidence`}
+        </div>
+      )}
       <div className="flex items-center gap-1.5 mt-2.5 pt-2.5" style={{ borderTop: "1px solid #16223A" }}>
         {reviewedJudgment ? (
           <span className="mono text-[9px] px-2 py-1 rounded flex items-center gap-1.5"

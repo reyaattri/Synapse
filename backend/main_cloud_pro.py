@@ -226,6 +226,46 @@ def _ledger_key(finding_title):
     return finding_title.strip().lower()
 
 
+# Signal-detection threshold conventionally used when screening spontaneous
+# adverse-event reports (e.g. FDA FAERS, WHO VigiBase): a Proportional
+# Reporting Ratio >= 2 with at least 3 reports is treated as a disproportionate
+# signal worth surfacing (Evans, Waller & Davis, 2001).
+PRR_SIGNAL_THRESHOLD = 2.0
+PRR_MIN_REPORTS = 3
+
+
+def _prr_signal(key):
+    """Proportional Reporting Ratio, adapted from spontaneous-report
+    pharmacovigilance signal detection to clinician feedback: how disproportionately
+    often THIS finding is confirmed vs. dismissed, relative to the average
+    confirm/dismiss rate across every other tracked finding. This is not the
+    textbook FAERS formula (there is no independent adverse-event denominator
+    here) — "reports" are feedback events, and the comparator population is
+    every other finding this fleet has judged, not a separate control group.
+    Returns None until there's a comparator population to be disproportionate
+    against."""
+    entry = FEEDBACK_LEDGER.get(key)
+    if not entry:
+        return None
+    a, b = entry.get("confirm", 0), entry.get("dismiss", 0)
+    if a + b == 0:
+        return None
+    other_confirm = sum(v.get("confirm", 0) for k, v in FEEDBACK_LEDGER.items() if k != key)
+    other_dismiss = sum(v.get("dismiss", 0) for k, v in FEEDBACK_LEDGER.items() if k != key)
+    if other_confirm + other_dismiss == 0:
+        return None
+    rate_this = a / (a + b)
+    rate_other = other_confirm / (other_confirm + other_dismiss)
+    if rate_other == 0:
+        return None
+    prr = rate_this / rate_other
+    return {
+        "prr": round(prr, 2),
+        "reports": a + b,
+        "signal": prr >= PRR_SIGNAL_THRESHOLD and (a + b) >= PRR_MIN_REPORTS,
+    }
+
+
 def _ledger_context_text():
     """Renders the feedback ledger as prompt context so accumulated fleet
     feedback conditions the model's actual answer, not just a UI badge next
@@ -584,12 +624,18 @@ async def timeline_snapshot(request: TimelineSnapshotRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# k-anonymity threshold (Sweeney, 2002): a group smaller than this is itself
+# identifying, so raw patient_ids are only ever returned when at least this
+# many patients match — otherwise only the count is disclosed.
+POPULATION_K_ANON = 3
+
+
 @app.post("/population_insight")
 async def population_insight(request: PopulationInsightRequest):
     # Privacy-safe cross-patient aggregation: each isolated patient dataset
     # is queried separately with a strict yes/no question. Raw notes never
-    # cross a patient boundary — only the yes/no answer and matching
-    # patient_id come back.
+    # cross a patient boundary, and matching patient_ids are only disclosed
+    # once the matching group clears the k-anonymity threshold below.
     question = (
         f"Based only on this patient's own record, are {request.term_a} and "
         f"{request.term_b} BOTH currently active (started and not later "
@@ -607,7 +653,13 @@ async def population_insight(request: PopulationInsightRequest):
                 matching.append(pid)
         except Exception:
             continue
-    return {"checked": checked, "matching_patients": matching, "count": len(matching)}
+    suppressed = len(matching) < POPULATION_K_ANON
+    return {
+        "checked": checked,
+        "count": len(matching),
+        "matching_patients": [] if suppressed else matching,
+        "k_anonymity_suppressed": suppressed,
+    }
 
 
 @app.post("/analyze")
@@ -689,8 +741,12 @@ async def explain(request: ExplainRequest):
 async def feedback(request: FeedbackRequest):
     # Human-in-the-loop feedback on Cognee's typed memory API. A QAEntry
     # records the alert as a session Q&A turn; a FeedbackEntry attaches the
-    # clinician's judgment to that turn via qa_id.
+    # clinician's judgment to that turn via qa_id. This occasionally 409s on
+    # Cognee Cloud (a known intermittent remember() issue on this tenant) —
+    # that must not also block the ledger tally below, which is purely local
+    # and the actual signal the PRR calculation and consensus banner depend on.
     session_id = request.patient_id
+    qa_recorded = False
     try:
         qa = QAEntry(
             question=f"Is there a cross-specialty risk from: {request.finding_title}?",
@@ -698,25 +754,21 @@ async def feedback(request: FeedbackRequest):
         )
         qa_result = await cognee.remember(qa, dataset_name=request.patient_id, session_id=session_id)
         qa_id = qa_result.entry_id
-        if not qa_id:
-            raise HTTPException(status_code=500, detail="Cognee did not return a qa_id for the QA entry")
-
-        fb = FeedbackEntry(
-            qa_id=qa_id,
-            feedback_text=f"Clinician {request.judgment}ed this alert.",
-            feedback_score=1 if request.judgment == "confirm" else -1,
-        )
-        await cognee.remember(fb, dataset_name=request.patient_id, session_id=session_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        if qa_id:
+            fb = FeedbackEntry(
+                qa_id=qa_id,
+                feedback_text=f"Clinician {request.judgment}ed this alert.",
+                feedback_score=1 if request.judgment == "confirm" else -1,
+            )
+            await cognee.remember(fb, dataset_name=request.patient_id, session_id=session_id)
+            qa_recorded = True
+    except Exception:
+        pass
 
     # improve(session_ids=...) is meant to bridge session Q&A/feedback into
     # the permanent graph and apply feedback-weight adjustments. It is not
-    # available on this Cognee Cloud tenant yet, so this call is
-    # best-effort — the QAEntry/FeedbackEntry above are already durably
-    # recorded regardless of whether this succeeds.
+    # available on this Cognee Cloud tenant yet, so this call is best-effort
+    # regardless of whether the QAEntry above succeeded.
     enriched = False
     try:
         await cognee.improve(dataset=request.patient_id, session_ids=[session_id])
@@ -740,13 +792,15 @@ async def feedback(request: FeedbackRequest):
     entry = FEEDBACK_LEDGER.setdefault(key, {"confirm": 0, "dismiss": 0})
     entry[request.judgment] = entry.get(request.judgment, 0) + 1
 
-    return {"status": "ok", "judgment": request.judgment, "qa_id": qa_id, "enriched": enriched,
-            "ledger": entry}
+    return {"status": "ok", "judgment": request.judgment, "qa_recorded": qa_recorded, "enriched": enriched,
+            "ledger": {**entry, "prr": _prr_signal(key)}}
 
 
 @app.get("/ledger/{finding_title}")
 async def ledger_lookup(finding_title: str):
-    return FEEDBACK_LEDGER.get(_ledger_key(finding_title), {"confirm": 0, "dismiss": 0})
+    key = _ledger_key(finding_title)
+    entry = FEEDBACK_LEDGER.get(key, {"confirm": 0, "dismiss": 0})
+    return {**entry, "prr": _prr_signal(key)}
 
 
 @app.post("/improve")
