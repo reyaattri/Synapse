@@ -996,22 +996,31 @@ export default function SynapseMedDashboard() {
                   <p style={{ color: "#B7C4DC" }}>{discoverResult.note}</p>
                 ) : discoverResult.candidate_signals?.length ? (
                   <div className="space-y-2">
-                    {discoverResult.candidate_signals.map((s, i) => (
-                      <div key={i} className="rounded-lg p-2.5" style={{ background: "#1A0E20", border: "1px solid #6B2C56" }}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="disp font-semibold text-[13px]" style={{ color: "#FFCFE8" }}>
-                            {titleCase(s.drug_a)} + {titleCase(s.drug_b)}
-                          </span>
-                          <span className="mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "#3A1530", color: "#FFCFE8" }}>
-                            PRR {s.prr}×
-                          </span>
+                    {discoverResult.candidate_signals.map((s, i) => {
+                      const lowSample = (s.a + s.b) < 5;
+                      return (
+                        <div key={i} className="rounded-lg p-2.5" style={{ background: "#1A0E20", border: "1px solid #6B2C56" }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="disp font-semibold text-[13px]" style={{ color: "#FFCFE8" }}>
+                              {titleCase(s.drug_a)} + {titleCase(s.drug_b)}
+                            </span>
+                            <span className="mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: "#3A1530", color: "#FFCFE8" }}>
+                              PRR {s.prr}×
+                            </span>
+                          </div>
+                          <p className="text-[11px]" style={{ color: "#B7C4DC" }}>
+                            Not in Synapse's known-interaction list. {titleCase(s.symptom)} appears in{" "}
+                            {s.a} of {s.a + s.b} patients on both drugs, vs {s.c} of {s.c + s.d} patients not on both.
+                          </p>
+                          <p className="text-[10.5px] mt-2 pt-2" style={{ color: "#8A7590", borderTop: "1px solid #3A1530" }}>
+                            Why: PRR = ({s.a}/{s.a + s.b}) ÷ ({s.c}/{s.c + s.d}) = {s.prr}. No established
+                            pharmacological mechanism connects these drugs, that's exactly why this is a
+                            candidate signal, not a confirmed interaction.
+                            {lowSample && " With this few exposed patients, treat it as a lead for pharmacy review, not a conclusion."}
+                          </p>
                         </div>
-                        <p className="text-[11px]" style={{ color: "#B7C4DC" }}>
-                          Not in Synapse's known-interaction list. {titleCase(s.symptom)} appears in{" "}
-                          {s.a} of {s.a + s.b} patients on both drugs, vs {s.c} of {s.c + s.d} patients not on both.
-                        </p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p style={{ color: "#B7C4DC" }}>
