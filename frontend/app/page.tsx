@@ -37,10 +37,6 @@ async function apiRecall(patientId, query) {
   }));
   return r.json();
 }
-async function apiImprove() {
-  const r = await checkOk(await fetch(`${BACKEND_URL}/improve`, { method: "POST" }));
-  return r.json();
-}
 async function apiForget(patientId) {
   const fd = new FormData();
   fd.append("patient_id", patientId);
@@ -533,15 +529,6 @@ export default function SynapseMedDashboard() {
     });
   };
 
-  const improve = async () => {
-    setBusy(true);
-    let msg = "Memory enriched · relationships re-weighted";
-    try { await apiImprove(); }
-    catch (e) { msg = `⚠ improve() unavailable on this tenant: ${e.message}`; }
-    flash(msg);
-    setBusy(false);
-  };
-
   /* ── clinician confirms/dismisses a finding → stored + triggers improve() ── */
   const submitFeedback = async (findingTitle, judgment) => {
     const key = `${activeId}::${findingTitle}`;
@@ -755,14 +742,14 @@ export default function SynapseMedDashboard() {
 
           <Panel title="Memory lifecycle" icon={Sparkles} accent="#C792EA">
             <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
-              Cognee's four verbs, exposed directly.
+              remember() and recall() run as you work above. improve() runs inside Confirm/Dismiss
+              on each finding. forget() clears this patient's memory below.
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <LifeBtn onClick={improve} disabled={busy} icon={Sparkles}
-                label="Improve" sub="enrich graph" color="#C792EA" />
-              <LifeBtn onClick={forget} disabled={busy} icon={Trash2}
-                label="Forget" sub="clear patient" color="#FF5C72" />
-            </div>
+            <button onClick={forget} disabled={busy}
+              className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              style={{ background: "#2E0E14", border: "1px solid #5C1C2C", color: "#FF9FAE" }}>
+              <Trash2 className="h-4 w-4" /> Forget · clear this patient
+            </button>
           </Panel>
 
           {/* TIMELINE */}
@@ -1207,18 +1194,6 @@ function Panel({ title, icon: Icon, right, children, accent = "#36D6C3" }) {
       </div>
       {children}
     </div>
-  );
-}
-
-function LifeBtn({ onClick, disabled, icon: Icon, label, sub, color }) {
-  return (
-    <button onClick={onClick} disabled={disabled}
-      className="rounded-lg p-2.5 text-left transition-all disabled:opacity-40"
-      style={{ background: "#0A111D", border: "1px solid #16223A" }}>
-      <Icon className="h-4 w-4 mb-1" style={{ color }} />
-      <div className="text-[12px] font-semibold">{label}</div>
-      <div className="mono text-[9px]" style={{ color: "#5C6B85" }}>{sub}</div>
-    </button>
   );
 }
 
