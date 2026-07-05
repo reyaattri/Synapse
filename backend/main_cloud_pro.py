@@ -928,6 +928,10 @@ async def clear(patient_id: str = Form(...)):
     # on this tenant; forget(dataset=...) for a single dataset works.
     try:
         result = await cognee.forget(dataset=patient_id)
+        # Otherwise a cleared patient keeps being scanned by population_insight
+        # and discover_signals forever, on a dataset that no longer has any
+        # notes in it.
+        KNOWN_PATIENTS.discard(patient_id)
         return {"status": "cleared", "detail": result}
     except Exception as e:
         return {"status": "clear_failed", "detail": str(e),
