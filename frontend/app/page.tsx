@@ -1121,8 +1121,9 @@ function GraphCanvas({ graph, onSelect, selected }) {
         const s = l.source, t = l.target; if (!s.x || !t.x) return null;
         const risk = l.kind === "risk";
         const resolved = l.kind === "resolved";
-        const col = risk ? (SEV[l.severity]?.color || "#FF5C72")
-                  : resolved ? "#2E8B7F" : "#1F3252";
+        // Matches the legend exactly: active risk is always red regardless of
+        // severity, severity itself is already shown on the Finding card.
+        const col = risk ? "#FF5C72" : resolved ? "#2E8B7F" : "#1F3252";
         return <line key={i} x1={s.x} y1={s.y} x2={t.x} y2={t.y}
           stroke={col} strokeWidth={risk ? 2.4 : resolved ? 2 : 1.2}
           strokeDasharray={risk || resolved ? "5 4" : "0"}
