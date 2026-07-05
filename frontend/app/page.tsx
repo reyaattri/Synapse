@@ -741,7 +741,7 @@ export default function SynapseMedDashboard() {
           </Panel>
 
           <Panel title="Memory lifecycle" icon={Sparkles} accent="#C792EA">
-            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#8A99B4" }}>
               remember() and recall() run as you work above. improve() runs inside Confirm/Dismiss
               on each finding. forget() clears this patient's memory below.
             </p>
@@ -842,7 +842,7 @@ export default function SynapseMedDashboard() {
           </Panel>
 
           <Panel title="Simulation mode · what if…" icon={FlaskConical} accent="#B78FFF">
-            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#8A99B4" }}>
               Check a drug BEFORE prescribing it. Nothing here is written to the patient's record.
             </p>
             <div className="flex gap-2 mb-3">
@@ -868,7 +868,7 @@ export default function SynapseMedDashboard() {
           </Panel>
 
           <Panel title="Provisional findings · auto-expiring memory" icon={Trash2} accent="#FF8A4C">
-            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#8A99B4" }}>
               A speculative "rule-out" note gets a real TTL. Once expired, pruning surgically
               forgets ONLY that item via Cognee's <span className="mono">forget(data_id=..., memory_only=True)</span>,
               not a full dataset wipe.
@@ -921,7 +921,7 @@ export default function SynapseMedDashboard() {
           </Panel>
 
           <Panel title="Time capsule · point-in-time query" icon={History} accent="#6BCBEF">
-            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#8A99B4" }}>
               Ask what was true as of a PAST date, not just "current status": genuine historical
               reconstruction using temporal reasoning over notes on or before that date only.
             </p>
@@ -947,7 +947,7 @@ export default function SynapseMedDashboard() {
           </Panel>
 
           <Panel title="Population insight · privacy-safe aggregation" icon={Users} accent="#4ADE80">
-            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#8A99B4" }}>
               For a pharmacy or safety team gauging population-wide exposure after an alert, not
               for reviewing one patient's chart. Each dataset is checked in isolation, only
               aggregate counts return.
@@ -980,7 +980,7 @@ export default function SynapseMedDashboard() {
           </Panel>
 
           <Panel title="Signal discovery · fleet-wide pattern mining" icon={Radar} accent="#F472B6">
-            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
+            <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#8A99B4" }}>
               Real drug-safety issues are usually caught this way, a pattern across many patients,
               noticed before it's written down anywhere. This flags undocumented pairs for a
               pharmacy review, not a diagnosis, using the same PRR method FDA FAERS uses.
@@ -1393,7 +1393,7 @@ function Empty({ text, ok }) {
       {ok
         ? <ShieldAlert className="h-6 w-6 mx-auto mb-2" style={{ color: "#36D6C3" }} />
         : <Network className="h-6 w-6 mx-auto mb-2" style={{ color: "#2C3A57" }} />}
-      <p className="text-[12px]" style={{ color: "#6B7A99" }}>{text}</p>
+      <p className="text-[12px]" style={{ color: "#8A99B4" }}>{text}</p>
     </div>
   );
 }
@@ -1413,7 +1413,7 @@ function NodeDrawer({ node, notes, onClose }) {
         <button onClick={onClose}><X className="h-4 w-4" style={{ color: "#6B7A99" }} /></button>
       </div>
       <h3 className="disp text-xl font-bold mb-1">{node.label}</h3>
-      <p className="text-[12px] mb-4" style={{ color: "#6B7A99" }}>
+      <p className="text-[12px] mb-4" style={{ color: "#8A99B4" }}>
         {mentions.length} session{mentions.length === 1 ? "" : "s"} reference this node.
       </p>
       <div className="space-y-2">
