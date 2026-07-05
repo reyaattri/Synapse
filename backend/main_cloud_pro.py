@@ -174,21 +174,28 @@ async def _exposure_outcome_profile(patient_id):
     """One recall() call per patient returning {active_drugs, symptoms} as
     real per-patient exposure/outcome data, the raw material for computing
     fleet-wide disproportionality (see /discover_signals) instead of just
-    answering a single pre-specified question."""
-    try:
-        result = await cognee.recall(EXPOSURE_OUTCOME_INSTRUCTION, datasets=[patient_id],
-                                      top_k=RECALL_TOP_K, query_type=GRAPH_QUERY_TYPE)
-        cleaned = "\n".join(_texts(result)).strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.MULTILINE).strip()
-        data = json.loads(cleaned)
-        if not isinstance(data, dict):
-            return set(), set()
-        drugs = {str(d).strip().lower() for d in data.get("active_drugs", []) if str(d).strip()}
-        symptoms = {str(s).strip().lower() for s in data.get("symptoms", []) if str(s).strip()} & set(_KNOWN_SYMPTOMS)
-        return drugs & set(_KNOWN_DRUGS), symptoms
-    except Exception:
-        return set(), set()
+    answering a single pre-specified question. A silently-dropped patient
+    here can remove the only comparator group discover_signals has to work
+    with, so this gets the same retry-once-on-bad-shape treatment /analyze
+    does, rather than swallowing the failure outright."""
+    question = EXPOSURE_OUTCOME_INSTRUCTION
+    for attempt in range(2):
+        try:
+            result = await cognee.recall(question, datasets=[patient_id],
+                                          top_k=RECALL_TOP_K, query_type=GRAPH_QUERY_TYPE)
+            cleaned = "\n".join(_texts(result)).strip()
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.MULTILINE).strip()
+            data = json.loads(cleaned)
+            if not isinstance(data, dict) or "active_drugs" not in data:
+                question = EXPOSURE_OUTCOME_INSTRUCTION + "\n\nReminder: JSON object only, no markdown table, no prose."
+                continue
+            drugs = {str(d).strip().lower() for d in data.get("active_drugs", []) if str(d).strip()}
+            symptoms = {str(s).strip().lower() for s in data.get("symptoms", []) if str(s).strip()} & set(_KNOWN_SYMPTOMS)
+            return drugs & set(_KNOWN_DRUGS), symptoms
+        except Exception:
+            question = EXPOSURE_OUTCOME_INSTRUCTION + "\n\nReminder: JSON object only, no markdown table, no prose."
+    return set(), set()
 
 
 async def _append_mechanism_facts(annotated_text, mappings, patient_id):
