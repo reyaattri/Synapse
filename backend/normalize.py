@@ -1,5 +1,5 @@
 """
-normalize.py — clinical terminology normalization middleware
+normalize.py: clinical terminology normalization middleware
 ============================================================
 Why this exists: doctors write the same concept many ways ("high BP",
 "hypertension", "elevated blood pressure"; "Zocor" vs "simvastatin"). If those

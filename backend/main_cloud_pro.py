@@ -1,5 +1,5 @@
 """
-Synapse backend — FastAPI + Cognee Cloud.
+Synapse backend: FastAPI + Cognee Cloud.
 
 Combines Cognee Cloud storage, temporal reasoning (temporal_cognify), and an
 RxNorm/canonical-term normalization pass (normalize.py) applied before data
@@ -29,7 +29,7 @@ load_dotenv()
 COGNEE_SERVICE_URL = os.getenv("COGNEE_SERVICE_URL")
 COGNEE_API_KEY = os.getenv("COGNEE_API_KEY")
 
-app = FastAPI(title="Synapse — Cognee Cloud")
+app = FastAPI(title="Synapse: Cognee Cloud")
 app.add_middleware(
     CORSMiddleware, allow_origins=["http://localhost:3000"],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
@@ -51,10 +51,10 @@ async def connect_to_cloud():
 TEMPORAL_INSTRUCTION = (
     "Before answering, list EVERY medication-related note for this patient you can "
     "find, in chronological order by date, and determine each drug's CURRENT status "
-    "(active or discontinued) based on its single LATEST note — a drug restarted "
+    "(active or discontinued) based on its single LATEST note. A drug restarted "
     "after being discontinued is ACTIVE again. Do not answer from one note in "
     "isolation; use the full timeline. CRITICAL: only use notes and dates you can "
-    "actually find in this patient's record — never invent, estimate, or extrapolate "
+    "actually find in this patient's record, never invent, estimate, or extrapolate "
     "a note, date, or medication that isn't literally present. If you are not certain "
     "a note exists, omit it rather than guessing. Then answer:\n\n"
 )
@@ -165,14 +165,14 @@ EXPOSURE_OUTCOME_INSTRUCTION = (
     "active_drugs lists every medication currently active for this patient (started and "
     "not later discontinued). symptoms lists which of the following exact phrases are noted "
     "anywhere in this patient's record, regardless of whether they were linked to a "
-    "medication — choose ONLY from this list, do not invent new wording: "
+    "medication. Choose ONLY from this list, do not invent new wording: "
     + ", ".join(_KNOWN_SYMPTOMS) + ". If none apply, use empty arrays."
 )
 
 
 async def _exposure_outcome_profile(patient_id):
     """One recall() call per patient returning {active_drugs, symptoms} as
-    real per-patient exposure/outcome data — the raw material for computing
+    real per-patient exposure/outcome data, the raw material for computing
     fleet-wide disproportionality (see /discover_signals) instead of just
     answering a single pre-specified question."""
     try:
@@ -257,14 +257,14 @@ class PopulationInsightRequest(BaseModel):
 
 
 # In-memory registry of provisional (TTL-tagged) notes, keyed by note_key.
-# Process-lifetime only — no persistence needed across restarts. Expired
+# Process-lifetime only, no persistence needed across restarts. Expired
 # entries are removed via per-item forget(dataset=..., data_id=..., memory_only=True).
 PROVISIONAL_REGISTRY = {}
 
 # Fleet-wide feedback ledger: tallies confirm/dismiss judgments by finding
 # title across every patient (title + count only, never raw notes). This is
 # what lets a different patient's identical finding show "confirmed N times
-# across patients" — a client-side substitute for Cognee's improve()-driven
+# across patients", a client-side substitute for Cognee's improve()-driven
 # feedback weighting, which is not available on this tenant.
 FEEDBACK_LEDGER = {}
 
@@ -287,7 +287,7 @@ def _prr_signal(key):
     often THIS finding is confirmed vs. dismissed, relative to the average
     confirm/dismiss rate across every other tracked finding. This is not the
     textbook FAERS formula (there is no independent adverse-event denominator
-    here) — "reports" are feedback events, and the comparator population is
+    here). "Reports" are feedback events, and the comparator population is
     every other finding this fleet has judged, not a separate control group.
     Returns None until there's a comparator population to be disproportionate
     against."""
@@ -322,7 +322,7 @@ def _ledger_context_text():
     lines = [f"- \"{title}\": clinicians confirmed this {v.get('confirm', 0)}x and dismissed it "
              f"{v.get('dismiss', 0)}x across the patient population so far"
              for title, v in FEEDBACK_LEDGER.items()]
-    return ("\n\nKnown clinician feedback history from OTHER patients (context only — a pattern "
+    return ("\n\nKnown clinician feedback history from OTHER patients (context only, a pattern "
             "being frequently dismissed elsewhere is a signal it may be a lower-value alert here "
             "too, but confirm using this patient's own record, don't assume):\n" + "\n".join(lines))
 
@@ -418,21 +418,25 @@ def _parse_structured_response(text):
     """Parses the {narrative, findings} JSON contract out of an LLM response,
     tolerating markdown code fences and per-finding shape drift. Falls back to
     treating the raw text as the narrative with no findings if the model
-    didn't return valid JSON at all."""
+    didn't follow the contract at all, either by returning prose/a markdown
+    table, or by returning valid JSON in some other shape entirely (both
+    happen despite an explicit schema). parsed_ok tells the caller which
+    happened, so a genuine "zero findings" answer isn't confused with a
+    failure worth retrying."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.MULTILINE).strip()
     try:
         data = json.loads(cleaned)
     except (json.JSONDecodeError, TypeError):
-        return {"narrative": text, "findings": []}
-    if not isinstance(data, dict):
-        return {"narrative": text, "findings": []}
+        return {"narrative": text, "findings": [], "parsed_ok": False}
+    if not isinstance(data, dict) or "findings" not in data:
+        return {"narrative": text, "findings": [], "parsed_ok": False}
     raw_findings = data.get("findings")
     if not isinstance(raw_findings, list):
         raw_findings = []
     findings = [f for f in (_normalize_finding(r) for r in raw_findings) if f]
-    return {"narrative": data.get("narrative") or "", "findings": findings}
+    return {"narrative": data.get("narrative") or "", "findings": findings, "parsed_ok": True}
 
 
 # Matches the "Connections:" lines returned by cognee.recall(..., only_context=True):
@@ -442,7 +446,7 @@ _EDGE_RE = re.compile(r"^(.+?)\s+--\[(.+?)\]-->\s+(.+?)\s{2}\(.*\)\s*$")
 
 def _parse_edges(raw_texts):
     """Extract literal (source, relation, target) triples from raw graph
-    context — real Cognee data, no LLM synthesis."""
+    context. Real Cognee data, no LLM synthesis."""
     edges = []
     for block in raw_texts:
         for line in block.split("\n"):
@@ -460,7 +464,7 @@ def _node_matches(node, term):
 
 def _shortest_path(edges, term_a, term_b, max_hops=4):
     """Deterministic BFS over the literal edges Cognee returned. Traverses
-    in either direction — an edge recorded a->b can still explain a
+    in either direction, an edge recorded a->b can still explain a
     connection when walked b->a."""
     adj = {}
     for s, rel, t in edges:
@@ -492,7 +496,7 @@ def _shortest_path(edges, term_a, term_b, max_hops=4):
     return None
 
 
-# Note chunks are stored as "[Cardiology Note]: 2025-09-01: ..." — a
+# Note chunks are stored as "[Cardiology Note]: 2025-09-01: ...". A
 # "contains" edge from such a chunk to an entity tells us which specialty
 # introduced that entity.
 _SPECIALTY_RE = re.compile(r"^\[(\w[\w ]*)\s+Note\]", re.IGNORECASE)
@@ -523,7 +527,7 @@ def _is_delete_error(e):
 
 async def _remember(text, patient_id):
     # self_improvement=False skips the internal prune/delete step that
-    # errors on this tenant. Every attempt keeps dataset_name=patient_id —
+    # errors on this tenant. Every attempt keeps dataset_name=patient_id,
     # never fall back to Cognee's default "main_dataset", since that would
     # silently store the note in the wrong dataset and break per-patient
     # isolation instead of failing loudly.
@@ -537,7 +541,7 @@ async def _remember(text, patient_id):
         try:
             await cognee.remember(text, **kwargs)
             if i > 0:
-                print(f"  temporal_cognify dropped (attempt {i} succeeded) — last error: {last}")
+                print(f"  temporal_cognify dropped (attempt {i} succeeded), last error: {last}")
             return
         except Exception as e:
             # Data is stored during add+cognify, which runs before the prune
@@ -570,7 +574,7 @@ async def ingest(patient_id: str = Form(...), text_content: str = Form(...)):
 @app.post("/ingest_document")
 async def ingest_document(patient_id: str = Form(...), file: UploadFile = File(...)):
     # Cognee's PdfDocument/CsvDocument/UnstructuredDocument types extract
-    # text via pure-Python libraries (pypdf, stdlib csv) — no external ML
+    # text via pure-Python libraries (pypdf, stdlib csv), no external ML
     # model dependency. Handles discharge summaries, lab exports, etc.
     try:
         raw_bytes = await file.read()
@@ -582,7 +586,7 @@ async def ingest_document(patient_id: str = Form(...), file: UploadFile = File(.
             TEMPORAL_INSTRUCTION + f"Text was just extracted from a document file named "
             f"'{buf.name}', uploaded RIGHT NOW via the ingest-document endpoint, for this "
             f"patient. This patient's record may ALSO contain older, unrelated documents or "
-            f"images from earlier testing — IGNORE those entirely and summarize ONLY the "
+            f"images from earlier testing. IGNORE those entirely and summarize ONLY the "
             f"content of the file just named above. Be specific about medications, dates, or "
             f"findings mentioned in it. If nothing usable was extracted, say so.",
             datasets=[patient_id], top_k=RECALL_TOP_K, query_type=GRAPH_QUERY_TYPE)
@@ -600,7 +604,7 @@ async def ingest_provisional(request: ProvisionalRequest):
     # speculative entries in memory indefinitely.
     expiry = datetime.now(timezone.utc) + timedelta(seconds=request.ttl_seconds)
     annotated, mappings = normalize_note(request.text_content)
-    annotated = (f"[{request.specialty} Note — PROVISIONAL, expires {expiry.isoformat()}]: "
+    annotated = (f"[{request.specialty} Note, PROVISIONAL, expires {expiry.isoformat()}]: "
                  f"{annotated}")
     try:
         result = await cognee.remember(annotated, dataset_name=request.patient_id, self_improvement=False)
@@ -650,15 +654,15 @@ async def prune():
 @app.post("/timeline_snapshot")
 async def timeline_snapshot(request: TimelineSnapshotRequest):
     # Point-in-time query: what was true as of a past date, not "current
-    # status" — a deeper use of temporal reasoning than start/stop tracking.
+    # status", a deeper use of temporal reasoning than start/stop tracking.
     question = (
         f"Before answering, list EVERY medication-related note for this patient you can "
         f"find, in chronological order by date, but ONLY consider notes dated on or before "
-        f"{request.as_of_date} — treat any note dated AFTER {request.as_of_date} as if it "
+        f"{request.as_of_date}. Treat any note dated AFTER {request.as_of_date} as if it "
         f"had not happened yet and ignore it entirely. Based only on that filtered history, "
         f"determine each drug's status AS OF {request.as_of_date} (active or discontinued) "
         f"using each drug's latest qualifying note. CRITICAL: only use notes and dates you "
-        f"can actually find in this patient's record — never invent one. Then answer: what "
+        f"can actually find in this patient's record, never invent one. Then answer: what "
         f"was this patient's medication status, and were there any active drug-drug or "
         f"drug-condition risks, AS OF {request.as_of_date}? Give severity and mechanism for "
         f"any active risk you find."
@@ -673,7 +677,7 @@ async def timeline_snapshot(request: TimelineSnapshotRequest):
 
 # k-anonymity threshold (Sweeney, 2002): a group smaller than this is itself
 # identifying, so raw patient_ids are only ever returned when at least this
-# many patients match — otherwise only the count is disclosed.
+# many patients match, otherwise only the count is disclosed.
 POPULATION_K_ANON = 3
 
 
@@ -710,7 +714,7 @@ async def population_insight(request: PopulationInsightRequest):
 
 
 # Minimum number of patients that must share a drug pair before it's even
-# considered — a "signal" from one patient is noise, not a discovery.
+# considered. A "signal" from one patient is noise, not a discovery.
 SIGNAL_MIN_PATIENTS_WITH_PAIR = 2
 
 
@@ -722,7 +726,7 @@ async def discover_signals():
     shows up disproportionately more often among patients exposed to that
     pair than among patients who are not, using the textbook Proportional
     Reporting Ratio (Evans, Waller & Davis, 2001) computed from real
-    per-patient exposure/outcome data — not the feedback-ledger adaptation
+    per-patient exposure/outcome data, not the feedback-ledger adaptation
     /ledger uses. Pairs already in MECHANISM_FACTS are skipped: this
     endpoint is only interested in surfacing candidates nobody told it
     about. Like population_insight, each patient's raw notes are only ever
@@ -770,6 +774,14 @@ async def analyze(request: QueryRequest):
                     + "\n\n" + FINDINGS_SCHEMA_INSTRUCTION)
         results = await cognee.recall(question, datasets=[request.patient_id], top_k=RECALL_TOP_K, query_type=GRAPH_QUERY_TYPE)
         parsed = _parse_structured_response("\n".join(_texts(results)))
+        # The model occasionally ignores the JSON-only instruction and
+        # returns a markdown table instead. Retry once before giving up on
+        # structured findings, rather than silently degrading to prose only.
+        if not parsed["parsed_ok"]:
+            retry_question = question + "\n\nReminder: JSON object only, no markdown table, no prose."
+            results = await cognee.recall(retry_question, datasets=[request.patient_id],
+                                           top_k=RECALL_TOP_K, query_type=GRAPH_QUERY_TYPE)
+            parsed = _parse_structured_response("\n".join(_texts(results)))
         data = [parsed["narrative"]] if parsed["narrative"] else _texts(results)
         return {"status": "success", "data": data, "findings": parsed["findings"]}
     except Exception as e:
@@ -783,7 +795,7 @@ async def simulate(request: SimulateRequest):
     question = TEMPORAL_INSTRUCTION + (
         f"Given this patient's currently active medications, if we NEWLY prescribe "
         f"{request.drug}, list any drug-drug interactions or contraindications it "
-        f"would introduce. This is HYPOTHETICAL — the patient has not actually been "
+        f"would introduce. This is HYPOTHETICAL, the patient has not actually been "
         f"given this drug and the record must not be treated as changed. For each "
         f"interaction found, give the severity (critical / major / moderate), the "
         f"mechanism, and which existing drug it conflicts with."
@@ -810,7 +822,7 @@ async def debug_notes(patient_id: str):
 @app.post("/explain")
 async def explain(request: ExplainRequest):
     # XAI traceability: fetch raw graph triples (only_context=True, no LLM
-    # synthesis) and run a deterministic BFS — the breadcrumb is built from
+    # synthesis) and run a deterministic BFS. The breadcrumb is built from
     # literal edges Cognee stored, not a model's guess.
     try:
         raw = await cognee.recall(f"{request.term_a} {request.term_b}",
@@ -831,9 +843,9 @@ async def explain(request: ExplainRequest):
                 path = path + [{"relation": "introduced_by", "forward": True, "node": end_bookend}]
         return {"status": "success", "path": path,
                 "note": None if path else (
-                    "No direct graph-level link found between these two concepts yet — "
-                    "the interaction is flagged by the clinical rules engine, not a "
-                    "stored graph relationship. See each drug's source note instead.")}
+                    "No direct graph-level link found between these two concepts yet. "
+                    "Cognee flagged the interaction from reasoning over the record, but no "
+                    "stored graph edge connects them directly. See each drug's source note instead.")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -843,8 +855,8 @@ async def feedback(request: FeedbackRequest):
     # Human-in-the-loop feedback on Cognee's typed memory API. A QAEntry
     # records the alert as a session Q&A turn; a FeedbackEntry attaches the
     # clinician's judgment to that turn via qa_id. This occasionally 409s on
-    # Cognee Cloud (a known intermittent remember() issue on this tenant) —
-    # that must not also block the ledger tally below, which is purely local
+    # Cognee Cloud (a known intermittent remember() issue on this tenant).
+    # That must not also block the ledger tally below, which is purely local
     # and the actual signal the PRR calculation and consensus banner depend on.
     session_id = request.patient_id
     qa_recorded = False
@@ -925,7 +937,7 @@ async def clear(patient_id: str = Form(...)):
 @app.get("/graph", response_class=HTMLResponse)
 async def graph():
     # Cognee Cloud's own graph explorer lives behind platform.cognee.ai's login,
-    # so it can't be embedded directly in this iframe — link out to it instead
+    # so it can't be embedded directly in this iframe. Link out to it instead
     # of silently failing to render inside the frame.
     return HTMLResponse(
         "<div style='font-family:sans-serif;padding:24px;color:#333;line-height:1.5'>"

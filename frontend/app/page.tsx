@@ -13,7 +13,7 @@ import {
 const BACKEND_URL = "http://localhost:8000";
 
 /* ── backend calls ──────────────────────────────────────────────── */
-// fetch() only rejects on network failure — a 500 response resolves normally
+// fetch() only rejects on network failure. A 500 response resolves normally
 // and would otherwise be silently treated as success. Always check r.ok first.
 async function checkOk(r) {
   if (!r.ok) {
@@ -122,8 +122,8 @@ async function apiDiscoverSignals() {
 /* ─────────────────── known clinical vocabulary ──────────────────────
    Used client-side only to spot which drugs/conditions/symptoms appear
    in note text, so the D3 graph can render nodes for them. Interaction
-   severity, mechanism, and temporal resolution are never decided here —
-   those come from Cognee's recall() on the backend.                   */
+   severity, mechanism, and temporal resolution are never decided here.
+   Those come from Cognee's recall() on the backend.                   */
 const DRUGS = {
   amiodarone: "Amiodarone", simvastatin: "Simvastatin", atorvastatin: "Atorvastatin",
   rosuvastatin: "Rosuvastatin", pravastatin: "Pravastatin",
@@ -219,7 +219,7 @@ function noteDate(text) {
 // appear somewhere in the same record. A symptom following drug start within
 // a plausible window is stronger temporal evidence than one that predates the
 // drug or trails it by an implausible margin. This runs on explicit dates
-// already written in note text — it does not invent or infer a date.
+// already written in note text. It does not invent or infer a date.
 function sequenceSymmetry(notes, drugTerm, symptomKeys) {
   if (!symptomKeys.length) return null;
   const drugDate = notes
@@ -413,8 +413,8 @@ export default function SynapseMedDashboard() {
       }
       if (res?.alerts?.length) setCogneeText(res.alerts.join("\n\n"));
     } catch (e) {
-      // Shown in the graph locally, but NOT actually stored in Cognee —
-      // make that distinction unmistakable instead of a vague "saved" message.
+      // Shown in the graph locally, but NOT actually stored in Cognee.
+      // Make that distinction unmistakable instead of a vague "saved" message.
       backendMsg = `⚠ NOT stored in Cognee: ${e.message || "backend unreachable"}`;
     }
     setPatients((prev) => ({ ...prev,
@@ -993,10 +993,8 @@ export default function SynapseMedDashboard() {
 
           <Panel title="Signal discovery · fleet-wide pattern mining" icon={Radar} accent="#F472B6">
             <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
-              Doesn't check a pair you already suspect — scans every drug pair that actually
-              co-occurs across the fleet and flags any NOT already known to Synapse where a
-              symptom appears disproportionately more often (Proportional Reporting Ratio, the
-              same method FDA FAERS uses) among exposed patients than unexposed ones.
+              Scans every drug pair across the fleet and flags any undocumented pair with a
+              disproportionate symptom rate, using the same PRR method FDA FAERS uses.
             </p>
             <button onClick={runDiscoverSignals} disabled={discoverBusy}
               className="w-full py-2 rounded-lg font-semibold text-sm transition-all disabled:opacity-40"
@@ -1254,7 +1252,7 @@ function Finding({ f, reviewedJudgment, onFeedback, explainState, onExplain, led
   }
   // Cognee's improve()-driven feedback weighting isn't available on this
   // tenant, so cross-patient consensus is computed client-side from the
-  // fleet ledger — a vote across patients changes the finding's label,
+  // fleet ledger. A vote across patients changes the finding's label,
   // tone, and framing directly, not just a passive counter.
   let consensus = null;
   if (ledger) {
@@ -1338,11 +1336,11 @@ function Finding({ f, reviewedJudgment, onFeedback, explainState, onExplain, led
           title="Sequence Symmetry Analysis (Hallas, 1996)">
           <Clock className="h-3 w-3" />
           {f.temporal.verdict === "consistent" &&
-            `Sequence check: symptom followed drug start by ${f.temporal.days} day${f.temporal.days === 1 ? "" : "s"} — temporally consistent`}
+            `Sequence check: symptom followed drug start by ${f.temporal.days} day${f.temporal.days === 1 ? "" : "s"}, temporally consistent`}
           {f.temporal.verdict === "precedes" &&
-            `Sequence check: symptom predates this drug by ${Math.abs(f.temporal.days)} day${Math.abs(f.temporal.days) === 1 ? "" : "s"} — weaker evidence of causation`}
+            `Sequence check: symptom predates this drug by ${Math.abs(f.temporal.days)} day${Math.abs(f.temporal.days) === 1 ? "" : "s"}, weaker evidence of causation`}
           {f.temporal.verdict === "distant" &&
-            `Sequence check: symptom trails drug start by ${f.temporal.days} days — too distant to treat as strong temporal evidence`}
+            `Sequence check: symptom trails drug start by ${f.temporal.days} days, too distant for strong temporal evidence`}
         </div>
       )}
       <div className="flex items-center gap-1.5 mt-2.5 pt-2.5" style={{ borderTop: "1px solid #16223A" }}>
