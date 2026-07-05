@@ -948,8 +948,9 @@ export default function SynapseMedDashboard() {
 
           <Panel title="Population insight · privacy-safe aggregation" icon={Users} accent="#4ADE80">
             <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
-              Checks EACH patient's isolated dataset separately for a yes/no answer. Raw notes
-              never cross a patient boundary, only aggregated counts come back.
+              For a pharmacy or safety team gauging population-wide exposure after an alert, not
+              for reviewing one patient's chart. Each dataset is checked in isolation, only
+              aggregate counts return.
             </p>
             <div className="grid grid-cols-2 gap-2 mb-3">
               <input value={popA} onChange={(e) => setPopA(e.target.value)} placeholder="e.g. Amiodarone"
@@ -980,8 +981,9 @@ export default function SynapseMedDashboard() {
 
           <Panel title="Signal discovery · fleet-wide pattern mining" icon={Radar} accent="#F472B6">
             <p className="text-[12px] mb-3 leading-relaxed" style={{ color: "#6B7A99" }}>
-              Scans every drug pair across the fleet and flags any undocumented pair with a
-              disproportionate symptom rate, using the same PRR method FDA FAERS uses.
+              Real drug-safety issues are usually caught this way, a pattern across many patients,
+              noticed before it's written down anywhere. This flags undocumented pairs for a
+              pharmacy review, not a diagnosis, using the same PRR method FDA FAERS uses.
             </p>
             <button onClick={runDiscoverSignals} disabled={discoverBusy}
               className="w-full py-2 rounded-lg font-semibold text-sm transition-all disabled:opacity-40"
@@ -1259,7 +1261,7 @@ function Finding({ f, reviewedJudgment, onFeedback, explainState, onExplain, led
         </span>
       </div>
       {confidence && (
-        <div className="text-[10px] mb-2" style={{ color: "#6B9BFF" }}>◆ Confidence: {confidence}</div>
+        <div className="text-[12.5px] font-medium mb-2.5" style={{ color: "#6B9BFF" }}>◆ Confidence: {confidence}</div>
       )}
       {consensus && (
         <div className="rounded-lg px-2.5 py-1.5 mb-2 text-[11px] flex items-center gap-1.5" style={consensusStyle[consensus.tone]}>
