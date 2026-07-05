@@ -366,8 +366,11 @@ FINDINGS_SCHEMA_INSTRUCTION = (
     'across calls. severity is exactly one of "critical", "major", "moderate". resolved is '
     "true only if the interacting drug was later discontinued. specialties lists the specialty "
     "that introduced drug_a, then the one that introduced drug_b. Include one object per "
-    "interaction or contraindication found anywhere in this patient's record. If there are "
-    "none, use an empty array for findings."
+    "interaction or contraindication found ANYWHERE in this patient's history, even if it is "
+    "no longer active. A resolved interaction (resolved: true) is still a required finding, "
+    "not something to leave out just because it isn't currently active, omitting it is wrong. "
+    "If, and only if, this patient's record has no interaction or contraindication at all, "
+    "past or present, use an empty array for findings."
 )
 
 
