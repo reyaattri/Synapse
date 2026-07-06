@@ -15,10 +15,64 @@ The graph, the temporal reasoning, and the feedback loop are the actual product 
 Synapse is two small pieces of code wrapped around one big idea: let Cognee do the remembering, and keep everything else thin.
 
 ```mermaid
-flowchart LR
-    A["Clinician<br/>(browser)"] -->|"Next.js dashboard"| B["FastAPI backend"]
-    B <-->|"remember · recall<br/>improve · forget"| C[("Cognee Cloud<br/>hybrid graph-vector memory")]
-    D["RxNorm API (NIH)"] -.->|"canonical drug names"| B
+flowchart TB
+    classDef client fill:#122036,stroke:#5BA8FF,stroke-width:2px,color:#CFE3FF
+    classDef backend fill:#1E1633,stroke:#B78FFF,stroke-width:2px,color:#E3CFFF
+    classDef cognee fill:#0C2E2B,stroke:#36D6C3,stroke-width:2px,color:#9FF3E8
+    classDef external fill:#331226,stroke:#F472B6,stroke-width:2px,color:#FFCFE8
+
+    UI["Next.js Dashboard<br/>ingest · recall · simulate · explain<br/>feedback · provisional · time capsule<br/>population insight · signal discovery"]
+
+    subgraph BACKEND["FastAPI Backend (main_cloud_pro.py)"]
+        NORM["normalize_note()<br/>RxNorm brand to generic"]
+        MECH["mechanism-fact injector<br/>real pharmacology appended<br/>when drugs pair up"]
+        TEMPORAL["temporal instruction +<br/>strict JSON findings schema"]
+        PARSE["structured-response parser<br/>shape check, retry once"]
+        LEDGER["feedback ledger<br/>confirm/dismiss tally + PRR"]
+        TTL["provisional registry<br/>TTL-tracked notes"]
+        EDGES["shortest-path BFS<br/>for /explain"]
+    end
+
+    RXNORM["RxNorm API<br/>NIH RxNav"]
+
+    subgraph COGNEE["Cognee Cloud"]
+        REMEMBER[("remember()<br/>dataset_name = patient_id")]
+        RECALL[("recall()<br/>GRAPH_COMPLETION mode")]
+        CONTEXT[("recall(only_context=True)<br/>raw graph triples, no LLM synthesis")]
+        IMPROVE[("improve()<br/>best effort")]
+        FORGET[("forget()<br/>dataset, or a single item")]
+        GRAPHDB[("per-patient isolated<br/>knowledge graph")]
+    end
+
+    UI -->|"POST /ingest"| NORM
+    NORM --> MECH --> REMEMBER
+    RXNORM -.->|"canonical name + RxCUI"| NORM
+
+    UI -->|"POST /analyze, /simulate,<br/>/timeline_snapshot, /population_insight,<br/>/discover_signals"| TEMPORAL
+    TEMPORAL --> RECALL
+    RECALL --> PARSE
+    PARSE -->|"bad shape"| RECALL
+    PARSE -->|"finding + narrative"| UI
+
+    UI -->|"POST /explain"| CONTEXT
+    CONTEXT --> EDGES --> UI
+
+    UI -->|"POST /feedback"| LEDGER
+    LEDGER --> IMPROVE
+    LEDGER -.->|"context on next recall()"| TEMPORAL
+
+    UI -->|"provisional note / prune"| TTL
+    TTL --> FORGET
+
+    REMEMBER --> GRAPHDB
+    RECALL --> GRAPHDB
+    CONTEXT --> GRAPHDB
+    FORGET --> GRAPHDB
+
+    class UI client
+    class NORM,MECH,TEMPORAL,PARSE,LEDGER,TTL,EDGES backend
+    class REMEMBER,RECALL,CONTEXT,IMPROVE,FORGET,GRAPHDB cognee
+    class RXNORM external
 ```
 
 The **frontend** is a Next.js dashboard. It's the only place a clinician actually looks, and it does exactly three jobs: it lets you commit a note, it renders whatever the backend hands back (a finding, a graph, a timeline), and it draws a small D3 graph locally so you can see the shape of a patient's memory without waiting on Cognee's own graph explorer. It doesn't reason about anything itself.
@@ -27,23 +81,6 @@ The **backend** is a FastAPI service, and it's deliberately kept boring. It hold
 
 - **When a note is committed**, the backend first runs it through a small RxNorm-based normalizer, so "Zocor," "zocor," and "simvastatin" all collapse to the same canonical drug name before anything reaches Cognee. That normalized text is then written into that patient's dataset with `remember()`. If a drug pairs with something already active for that patient, the backend quietly appends a real pharmacology sentence to the note first (the actual mechanism, e.g. "amiodarone inhibits CYP3A4"), so Cognee's own graph extraction has a genuine fact to build an edge from, not just two drug names sitting in the same sentence.
 - **When a clinician asks a question**, the backend doesn't just forward it. It wraps the question in a temporal instruction ("reconstruct this patient's full medication timeline before answering, and only trust dates and notes you can actually find") and a strict JSON schema, then sends that whole package to `recall()` in `GRAPH_COMPLETION` mode. Cognee comes back with a structured object: a plain-language narrative, plus a list of findings, each with a severity, a mechanism, and whether it's still active. Because LLMs occasionally wander off-schema even when told exactly what shape to return, the backend checks the shape it got back and silently retries once before giving up, so a single bad response doesn't show up as a mysteriously empty result on screen.
-
-```mermaid
-flowchart TD
-    subgraph commit["Committing a note"]
-        n1["Note typed in the UI"] --> n2["RxNorm normalization"]
-        n2 --> n3["Mechanism fact injected,<br/>if it pairs with an active drug"]
-        n3 --> n4["remember()<br/>into this patient's isolated dataset"]
-    end
-
-    subgraph ask["Asking a question"]
-        q1["Question typed in the UI"] --> q2["Temporal instruction +<br/>strict JSON schema attached"]
-        q2 --> q3["recall() in GRAPH_COMPLETION mode"]
-        q3 --> q4{"Shape valid?"}
-        q4 -- "no, retry once" --> q3
-        q4 -- "yes" --> q5["Finding rendered in the dashboard"]
-    end
-```
 
 Two structural decisions run underneath almost everything above them, and they're worth calling out on their own, because they're the reason several of the more unusual features work at all:
 
